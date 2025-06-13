@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Totem Mockup</title>
+  <style>
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #container {
+      position: relative;
+      width: 110vmin;
+      height: 90vmin;
+      overflow: visible;
+      display: flex;
+    }
+    #sideboard {
+      width: 20vmin;
+      position: relative;
+      background: repeating-linear-gradient(
+        45deg,
+      #cccccc,
+      #cccccc 10px,
+      #aaaaaa 10px,
+      #aaaaaa 20px
+      );
+      border: 2px solid #868686;
+      float: left;
+    }
+    #square {
+      position: relative;
+      background-color: #c6c6c6;
+      flex-grow: 1;
+      border: 2px solid #000000;
+    }
+
+    .circle {
+      user-select: none;
+      padding: 0;
+      font-size: 30px;
+      position: absolute;
+      width: 35px;
+      height: 35px;
+      border-radius: 50%;
+      border: 2px none #6d6d6d;
+      box-shadow: 0px 0px 4px 2px rgb(42, 41, 93);
+      text-shadow: 0px 0px 4px white;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .statsTable {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .statsHeader {
+      width: 50px;
+      padding: 5px;
+      border: 1px solid #333333;
+      user-select: none;
+      font-weight: bold;
+      text-align: center;
+    }
+    .stats {
+      width: 200px;
+      padding: 5px;
+      border: 1px solid #555555;
+    }
+
+    td {
+      vertical-align: top;
+    }
+  
+  </style>
+</head>
+<body>
+
+<table>
+  <tr>
+    <td>
+      <div id="container">
+        <div id="sideboard"></div>
+        <div id="square"></div>
+      </div>
+    </td>
+    <td>
+      <table class="statsTable">
+        <tbody id="circleBody"></tbody>
+      </table>
+      <table>
+        <tr>
+          <td><i>Click number in table to reset totem position</i></td>
+        </tr>
+        <tr>
+          <td>
+            <form name="ws">
+              Enable websockets: <input type="checkbox" id="wsenable">
+              <input type="text" size="50" value="ws://localhost:8000/totems" id="wsurl">
+            </form>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<script>
+  const container = document.getElementById('container');
+  const square = document.getElementById('square');
+  const sideboard = document.getElementById('sideboard');
+  const circles = [];
+  const circleStartingPositions = [];
+  const totemPositions = [];
+  const colors = ['#fce94f', '#fcaf3e', '#888a85', '#8ae234', '#729fcf', '#ad7fa8', '#ef2929', '#eeeeec'];
+  const totemCount = 8;
+  const circleDiameter = 35;
+
+  // This is called on start and on resize
+  // should keep the location correct when resizing the window
+  // A bunch of this should be redone as a class, but whatever
+  function repositionCircles() {
+    const sbRect = sideboard.getBoundingClientRect();
+    const spacing = sbRect.height / (totemCount + 1);
+    circleStartingPositions.length = 0;
+    for (i = 0; i < totemCount; i++) {
+      let loc = {
+        "x": (sbRect.left + sbRect.right) / 2 - circleDiameter / 2,
+        "y": sbRect.top + (i + 1) * spacing
+      };
+      circleStartingPositions.push(loc);
+    }
+
+    circles.forEach((circle, i) => {
+      if (totemPositions[i].x == -1 || totemPositions[i].y == -1) {
+        setLocation(i, circleStartingPositions[i]);
+      } else {
+        // This should only be called when resizing
+        const bounds = square.getBoundingClientRect();
+        const tpos = totemPositions[i];
+        console.log("got totemPosition ", tpos);
+        const x = bounds.width * tpos.x + bounds.left;
+        const y = bounds.height * tpos.y + bounds.top;
+        setLocation(i, {x, y}, true);
+      }
+    });
+  }
+
+  function updateTotemPosition(i) {
+    let x = -1;
+    let y = -1;
+    const loc = circles[i].getBoundingClientRect();
+    loc.x += loc.width / 2;
+    loc.y += loc.height / 2;
+    const bounds = square.getBoundingClientRect();
+    if (loc.x > bounds.left &&
+         loc.x < bounds.right &&
+         loc.y > bounds.top &&
+         loc.y < bounds.bottom) {
+      x = (loc.x - bounds.left) / bounds.width;
+      y = (loc.y - bounds.top) / bounds.height;
+    }
+    totemPositions[i] = { "x": x, "y": y };
+  }
+
+  function setLocation(i, loc, resize) {
+    // console.log("setting ", i, " to ", loc);
+    circles[i].style.left = loc.x - circleDiameter / 2 + "px";
+    circles[i].style.top = loc.y - circleDiameter / 2 + "px";
+    if (resize) { return; };
+    updateTotemPosition(i);
+  }
+
+  function handleCollisions() {
+    const circleRects = circles.map(c => c.getBoundingClientRect());
+    for (let i = 0; i < circles.length; i++) {
+      for (let j = i + 1; j < circles.length; j++) {
+        const rect1 = circleRects[i];
+        const rect2 = circleRects[j];
+        const dx = (rect1.left + rect1.width / 2) - (rect2.left + rect2.width / 2);
+        const dy = (rect1.top + rect1.height / 2) - (rect2.top + rect2.height / 2);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const minDistance = 30;
+        if (distance < minDistance) {
+          const overlap = minDistance - distance;
+          const angle = Math.atan2(dy, dx);
+          const moveX = Math.cos(angle) * overlap / 2;
+          const moveY = Math.sin(angle) * overlap / 2;
+          const circle1 = circles[i];
+          const circle2 = circles[j];
+          const rect1 = circle1.getBoundingClientRect();
+          const rect2 = circle2.getBoundingClientRect();
+          circle1.style.left = (rect1.left - moveX) + 'px';
+          circle1.style.top = (rect1.top - moveY) + 'px';
+          circle2.style.left = (rect2.left + moveX) + 'px';
+          circle2.style.top = (rect2.top + moveY) + 'px';
+        }
+      }
+    }
+  }
+
+  // Function to update the table
+  function updateCircleTable() {
+    const tableBody = document.getElementById('circleBody');
+    tableBody.innerHTML = ''; // Clear existing table rows
+
+    circles.forEach((circle, i) => {
+      const loc = totemPositions[i];
+      const row = document.createElement('tr');
+      const circleNumCell = document.createElement('td');
+      const xPosCell = document.createElement('td');
+      const yPosCell = document.createElement('td');
+      circleNumCell.className = "statsHeader";
+      circleNumCell.style.backgroundColor = colors[i];
+      xPosCell.className = "stats";
+      yPosCell.className = "stats";
+
+      circleNumCell.textContent = i + 1;
+      xPosCell.textContent = loc.x;
+      yPosCell.textContent = loc.y;
+
+      circleNumCell.addEventListener("click", () => {
+        setLocation(i, circleStartingPositions[i]);
+        updateCircleTable();
+      });
+
+      row.appendChild(circleNumCell);
+      row.appendChild(xPosCell);
+      row.appendChild(yPosCell);
+
+      tableBody.appendChild(row);
+    });
+  }
+
+  // noop websocket send for when disabled
+  function initWs() {
+    return { send: function(){} };
+  }
+
+  var ws = initWs();
+
+  // Create circles
+  for (let i = 0; i < totemCount; i++) {
+    const circle = document.createElement('div');
+    circle.className = 'circle';
+    circle.style.backgroundColor = colors[i];
+    circle.textContent = i + 1;
+    circle.width = circleDiameter + "px";
+    circle.height = circleDiameter + "px";
+    circles.push(circle);
+    container.appendChild(circle);
+    totemPositions.push({"x": -1, "y": -1});
+  }
+
+  repositionCircles();
+  updateCircleTable();
+
+  window.addEventListener('resize', () => repositionCircles());
+
+  circles.forEach((circle, i) => {
+    let isDragging = false;
+    let offsetX, offsetY;
+
+    circle.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      offsetX = e.clientX - circle.offsetLeft;
+      offsetY = e.clientY - circle.offsetTop;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const x = e.clientX - offsetX + circleDiameter / 2;
+      const y = e.clientY - offsetY + circleDiameter / 2;
+      setLocation(i, {x, y});
+      handleCollisions();
+      updateCircleTable();
+    });
+
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+  });
+
+  document.getElementById('wsenable').addEventListener("change", (e) => {
+    const wstext = document.getElementById('wsurl');
+    if (e.target.checked == true) {
+      console.log("enabling websockets: " + wstext.value)
+      wstext.disabled = true;
+      wsurl = document.getElementById('wsurl').value;
+      ws = new WebSocket(wsurl);
+    } else {
+      console.log("disabling websockets");
+      wstext.disabled = false;
+      ws = initWs();
+    };
+  });
+
+  // WebSocket loop
+  setInterval(() => {
+    if (document.getElementById('wsenable').checked == true) {
+      ws.send(JSON.stringify(totemPositions));
+    };
+  }, 100);
+
+</script>
+</body>
+</html>
